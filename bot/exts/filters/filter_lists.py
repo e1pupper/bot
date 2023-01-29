@@ -1,4 +1,5 @@
 import datetime
+import io
 import re
 from collections import defaultdict
 from typing import Optional
@@ -16,6 +17,7 @@ from bot.converters import ValidDiscordServerInvite, ValidFilterListType
 from bot.log import get_logger
 from bot.pagination import LinePaginator
 from bot.utils.channel import is_mod_channel
+from bot.utils.services import send_to_paste_service
 
 log = get_logger(__name__)
 WEEKLY_REPORT_ISO_DAY = 3  # 1=Monday, 7=Sunday
@@ -332,18 +334,26 @@ class FilterLists(Cog):
                 # Default to empty string so that the in check below doesn't error on None type
                 comment = filter_details["comment"] or ""
                 if max(created_at, updated_at) > seven_days_ago and "[autoban]" in comment:
-                    line = f"`{filter_content}`: {comment}"
-                    added_autobans[f"**{filter_type} {allow_type}**"].append(line)
+                    line = f"{filter_content}: {comment}"
+                    added_autobans[f"{filter_type} {allow_type}"].append(line)
 
         # Nicely format the output so each filter list type is grouped
-        lines = [f"**Autoban filters added since {seven_days_ago.format('YYYY-MM-DD')}**"]
+        message_title = f"Autoban filters added since {seven_days_ago.format('YYYY-MM-DD')}"
+        lines = [f"{message_title}"]
         for filter_list, recently_added_autobans in added_autobans.items():
             lines.append("\n".join([filter_list]+recently_added_autobans))
 
         if len(lines) == 1:
-            lines.append("Nothing to show")
+            await channel.send(f"**{message_title}**\n\nNothing to show")
+            return
 
-        await channel.send("\n\n".join(lines))
+        message = "\n\n".join(lines)
+        paste_url = await send_to_paste_service(message, extension="txt")
+        file_buffer = io.StringIO(message)
+        await channel.send(
+            f"**{message_title}**\n\n{paste_url}",
+            file=discord.File(file_buffer, "last_weeks_autoban_filters.txt")
+        )
 
     async def cog_check(self, ctx: Context) -> bool:
         """Only allow moderators to invoke the commands in this cog."""
